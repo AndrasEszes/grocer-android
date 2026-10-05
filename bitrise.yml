@@ -1,0 +1,78 @@
+format_version: "23"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: android
+
+meta:
+  bitrise.io:
+    stack: ubuntu-noble-24.04-bitrise-2025-android
+
+app:
+  envs:
+  - KNOWN_ISSUE_ANNOTATION: io.grocer.app.testing.KnownIssue
+
+pipelines:
+  ci:
+    workflows:
+      unit_tests: {}
+      ui_tests: {}
+      ui_tests_api31: {}
+
+workflows:
+  unit_tests:
+    summary: JVM unit tests through the official Android Unit Test step.
+    steps:
+    - git-clone@8: {}
+    - restore-gradle-cache@3: {}
+    - android-unit-test@1:
+        inputs:
+        - module: app
+        - variant: debug
+    - save-gradle-cache@1: {}
+    - git::https://github.com/bitrise-steplib/steps-deploy-to-bitrise-io.git@2.26.0: {}
+
+  ui_tests:
+    summary: Emulator UI tests on API 34, without the known issues.
+    envs:
+    - AVD_API_LEVEL: "34"
+    - TEST_RUNNER_ARGS: -Pandroid.testInstrumentationRunnerArguments.notAnnotation=$KNOWN_ISSUE_ANNOTATION
+    after_run:
+    - _emulator_ui_tests
+
+  ui_tests_api31:
+    summary: Emulator UI tests on API 31, without the known issues.
+    envs:
+    - AVD_API_LEVEL: "31"
+    - TEST_RUNNER_ARGS: -Pandroid.testInstrumentationRunnerArguments.notAnnotation=$KNOWN_ISSUE_ANNOTATION
+    after_run:
+    - _emulator_ui_tests
+
+  ui_tests_with_known_issues:
+    summary: Emulator UI tests on API 34, including the tests that reproduce open bugs. Expected to fail.
+    envs:
+    - AVD_API_LEVEL: "34"
+    - TEST_RUNNER_ARGS: ""
+    after_run:
+    - _emulator_ui_tests
+
+  _emulator_ui_tests:
+    summary: Runs connectedDebugAndroidTest on a fresh emulator and exports the results with their attachments.
+    steps:
+    - git-clone@8: {}
+    - restore-gradle-cache@3: {}
+    - avd-manager@2:
+        inputs:
+        - api_level: $AVD_API_LEVEL
+        - abi: x86_64
+        - tag: google_apis
+    - wait-for-android-emulator@1: {}
+    - gradle-runner@6:
+        inputs:
+        - gradle_task: :app:connectedDebugAndroidTest
+        - gradle_options: --stacktrace $TEST_RUNNER_ARGS
+    - custom-test-results-export@1:
+        inputs:
+        - test_name: UI tests (API $AVD_API_LEVEL)
+        - base_path: app/build/outputs
+        - search_pattern: "*/androidTest-results/connected/debug/TEST-*.xml"
+    - save-gradle-cache@1: {}
+    - git::https://github.com/bitrise-steplib/steps-deploy-to-bitrise-io.git@2.26.0: {}
